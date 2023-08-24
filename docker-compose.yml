@@ -1,30 +1,20 @@
 ---
 version: '3.4'
 services:
-  fastapi:
-    build:
-      dockerfile: Dockerfile
   weaviate:
-    command:
-      - --host
-      - 0.0.0.0
-      - --port
-      - '8080'
-      - --scheme
-      - http
     image: semitechnologies/weaviate:1.21.1
-    ports:
-      - 8080:8080
-    volumes:
-      - weaviate_data:/var/lib/weaviate
     restart: on-failure:0
+    ports:
+      - "8080:8080"
     environment:
-      QUERY_DEFAULTS_LIMIT: 25
+      QUERY_DEFAULTS_LIMIT: 20
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
-      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
-      DEFAULT_VECTORIZER_MODULE: 'none'
-      ENABLE_MODULES: 'text2vec-cohere,text2vec-huggingface,text2vec-palm,text2vec-openai,generative-openai,generative-cohere,generative-palm,ref2vec-centroid,reranker-cohere,qna-openai'
+      PERSISTENCE_DATA_PATH: "./data"
+      ENABLE_MODULES: text2vec-transformers
+      DEFAULT_VECTORIZER_MODULE: text2vec-transformers
+      TRANSFORMERS_INFERENCE_API: http://t2v-transformers:8080
       CLUSTER_HOSTNAME: 'node1'
-volumes:
-  weaviate_data:
-...
+  t2v-transformers:
+    image: semitechnologies/transformers-inference:sentence-transformers-multi-qa-MiniLM-L6-cos-v1
+    environment:
+      ENABLE_CUDA: 0
