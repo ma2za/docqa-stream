@@ -17,6 +17,7 @@ pdfminer = "^20191125"
 weaviate-client = "^3.23.0"
 python-dotenv = "^1.0.0"
 langchain = "^0.0.271"
+openai = "^0.27.9"
 
 
 [build-system]
