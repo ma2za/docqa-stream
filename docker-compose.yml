@@ -1,20 +1,54 @@
 ---
 version: '3.4'
 services:
-  weaviate:
-    image: semitechnologies/weaviate:1.21.1
-    restart: on-failure:0
+  api:
+    env_file: .env
+    command:
+      - poetry
+      - run
+      - uvicorn
+      - src.docqa_stream.server:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - '${FASTAPI_PORT}'
+    build:
+      context: .
+      dockerfile: fastapi.Dockerfile
+    container_name: fastapi-application
+    depends_on:
+      - weaviate
+      - t2v-transformers
     ports:
-      - "8080:8080"
+      - '${FASTAPI_PORT}:${FASTAPI_PORT}'
+    restart: "on-failure"
+  weaviate:
+    env_file: .env
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - '${WEAVIATE_PORT}'
+      - --scheme
+      - http
+    image: semitechnologies/weaviate:1.21.1
+    ports:
+      - '${WEAVIATE_PORT}:${WEAVIATE_PORT}'
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    restart: "on-failure"
     environment:
-      QUERY_DEFAULTS_LIMIT: 20
+      TRANSFORMERS_INFERENCE_API: 'http://t2v-transformers:${WEAVIATE_PORT}'
+      QUERY_DEFAULTS_LIMIT: 25
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
-      PERSISTENCE_DATA_PATH: "./data"
-      ENABLE_MODULES: text2vec-transformers
-      DEFAULT_VECTORIZER_MODULE: text2vec-transformers
-      TRANSFORMERS_INFERENCE_API: http://t2v-transformers:8080
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'text2vec-transformers'
+      ENABLE_MODULES: 'text2vec-transformers'
       CLUSTER_HOSTNAME: 'node1'
   t2v-transformers:
     image: semitechnologies/transformers-inference:sentence-transformers-multi-qa-MiniLM-L6-cos-v1
     environment:
-      ENABLE_CUDA: 0
+      ENABLE_CUDA: '0'
+volumes:
+  weaviate_data:
+...

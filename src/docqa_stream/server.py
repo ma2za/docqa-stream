@@ -11,6 +11,7 @@ from langchain.chains import RetrievalQA, StuffDocumentsChain
 from langchain.chat_models import AzureChatOpenAI
 from langchain.prompts import PromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate
 from langchain.schema import SystemMessage, HumanMessage
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Weaviate
 from starlette.responses import StreamingResponse
 from unstructured.partition.pdf import partition_pdf
@@ -27,11 +28,6 @@ logger = logging.getLogger(__name__)
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
-
-
-def openai_streamer(retrieval_qa: RetrievalQA, query: str):
-    for resp in retrieval_qa.run(query):
-        yield resp
 
 
 @app.get("/query")
@@ -63,8 +59,13 @@ async def query(question: str):
         document_prompt=doc_prompt,
     )
     retrieval_qa = RetrievalQA(
-        retriever=vectorstore.as_retriever(), combine_documents_chain=final_qa_chain
+        retriever=vectorstore.as_retriever(search_kwargs={"k": 10}), combine_documents_chain=final_qa_chain
     )
+
+    def openai_streamer(retr_qa: RetrievalQA, text: str):
+        for resp in retr_qa.run(text):
+            yield resp
+
     return StreamingResponse(openai_streamer(retrieval_qa, question), media_type='text/event-stream')
 
 
@@ -73,9 +74,18 @@ async def create_upload_file(file: UploadFile):
     data = await file.read()
     elements = partition_pdf(file=io.BytesIO(data))
     text = [ele.text for ele in elements]
-    response = vectorstore.add_texts(["\n".join(text)])
+
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=200,
+        chunk_overlap=20,
+        length_function=len,
+        add_start_index=True,
+    )
+
+    docs = text_splitter.create_documents(["\n".join(text)])
+    response = vectorstore.add_documents(docs)
     return {"response": response}
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ["FASTAPI_PORT"]))
