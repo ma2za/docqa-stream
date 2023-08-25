@@ -16,24 +16,28 @@ from langchain.vectorstores import Weaviate
 from starlette.responses import StreamingResponse
 from unstructured.partition.pdf import partition_pdf
 
+from src.docqa_stream.utils.schema import create_classes
+
 load_dotenv()
 
 app = FastAPI()
 
 client = weaviate.Client(os.environ["WEAVIATE_URL"])
+
+create_classes(client)
+
 vectorstore = Weaviate(client=client, index_name="Document", text_key="content")
 logger = logging.getLogger(__name__)
 
 
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
+@app.get("/health")
+async def health():
+    return {"message": "OK"}
 
 
 @app.get("/query")
-async def query(question: str):
-    llm = AzureChatOpenAI(deployment_name="finetuner", streaming=True)
-
+async def query(question: str, temperature: int = 0.7, n_docs: int = 10):
+    llm = AzureChatOpenAI(deployment_name="finetuner", streaming=True, temperature=temperature)
     messages = [
         SystemMessage(
             content=(
@@ -59,7 +63,7 @@ async def query(question: str):
         document_prompt=doc_prompt,
     )
     retrieval_qa = RetrievalQA(
-        retriever=vectorstore.as_retriever(search_kwargs={"k": 10}), combine_documents_chain=final_qa_chain
+        retriever=vectorstore.as_retriever(search_kwargs={"k": n_docs}), combine_documents_chain=final_qa_chain
     )
 
     def openai_streamer(retr_qa: RetrievalQA, text: str):
@@ -70,13 +74,13 @@ async def query(question: str):
 
 
 @app.post("/upload")
-async def create_upload_file(file: UploadFile):
+async def create_upload_file(file: UploadFile, chunk_size: int = 200):
     data = await file.read()
     elements = partition_pdf(file=io.BytesIO(data))
     text = [ele.text for ele in elements]
 
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=200,
+        chunk_size=chunk_size,
         chunk_overlap=20,
         length_function=len,
         add_start_index=True,
