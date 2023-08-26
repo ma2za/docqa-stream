@@ -19,18 +19,21 @@ The API exposes 2 endpoints:
 Create a .env in the project root folder in order to set up the environment variables:
 
 ```text
-WEAVIATE_URL='http://weaviate:8080'
+WEAVIATE_SERVICE_NAME=weaviate
 FASTAPI_PORT=8000
 WEAVIATE_PORT=8080
-OPENAI_API_TYPE = "azure"
-OPENAI_API_VERSION = "2023-07-01-preview"
-OPENAI_API_KEY =
-OPENAI_API_BASE =
+WEAVIATE_COLLECTION = Document
+WEAVIATE_DROP_COLLECTION = false
+OPENAI_API_TYPE = azure
+OPENAI_API_VERSION = 2023-07-01-preview
+OPENAI_DEPLOYMENT_NAME=
+OPENAI_API_KEY = 
+OPENAI_API_BASE = 
 ```
 
 If those ports are not in use then you can leave these variables as
-they are, you just need to set **OPENAI_API_KEY** and **OPENAI_API_BASE**
-with the values you can find on the Azure dashboard of your
+they are, you just need to set **OPENAI_API_KEY**, **OPENAI_API_BASE** and
+**OPENAI_DEPLOYMENT_NAME** with the values you can find on the Azure dashboard of your
 Azure Open AI resource deployment.
 
 ### 2) Docker compose

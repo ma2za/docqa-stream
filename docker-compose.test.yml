@@ -1,39 +1,25 @@
 ---
 version: '3.4'
 services:
-  api:
-    env_file: .env
-    command:
-      - poetry
-      - run
-      - uvicorn
-      - src.docqa_stream.server:app
-      - --host
-      - 0.0.0.0
-      - --port
-      - '${FASTAPI_PORT}'
+  fastapi-tests:
+    env_file: .env.test
     build:
       context: .
-      dockerfile: fastapi.Dockerfile
-    container_name: fastapi-application
+      dockerfile: test.Dockerfile
+    container_name: fastapi-application-test
     depends_on:
       - weaviate
       - t2v-transformers
-    ports:
-      - '${FASTAPI_PORT}:${FASTAPI_PORT}'
-    restart: "on-failure"
+    volumes:
+      - type: bind
+        source: ./tests/logs
+        target: /app/tests/logs
   weaviate:
-    env_file: .env
-    command:
-      - --host
-      - 0.0.0.0
-      - --port
-      - '${WEAVIATE_PORT}'
-      - --scheme
-      - http
+    env_file: .env.test
     image: semitechnologies/weaviate:1.21.1
+    container_name: weaviate-test
     ports:
-      - '${WEAVIATE_PORT}:${WEAVIATE_PORT}'
+      - '8080:8080'
     volumes:
       - weaviate_data:/var/lib/weaviate
     restart: "on-failure"
@@ -47,6 +33,7 @@ services:
       CLUSTER_HOSTNAME: 'node1'
   t2v-transformers:
     image: semitechnologies/transformers-inference:sentence-transformers-multi-qa-MiniLM-L6-cos-v1
+    container_name: t2v-transformers-test
     environment:
       ENABLE_CUDA: '0'
 volumes:

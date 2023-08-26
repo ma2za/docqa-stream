@@ -4,30 +4,42 @@ import os
 
 import uvicorn
 import weaviate
-from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile
 from langchain import LLMChain
 from langchain.chains import RetrievalQA, StuffDocumentsChain
 from langchain.chat_models import AzureChatOpenAI
-from langchain.prompts import PromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate
-from langchain.schema import SystemMessage, HumanMessage
+from langchain.prompts import (ChatPromptTemplate, HumanMessagePromptTemplate,
+                               PromptTemplate)
+from langchain.schema import HumanMessage, SystemMessage
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Weaviate
 from starlette.responses import StreamingResponse
 from unstructured.partition.pdf import partition_pdf
 
-from src.docqa_stream.utils.schema import create_classes
-
-load_dotenv()
+from src.docqa_stream.utils.schema import create_class
 
 app = FastAPI()
 
-client = weaviate.Client(os.environ["WEAVIATE_URL"])
-
-create_classes(client)
-
-vectorstore = Weaviate(client=client, index_name="Document", text_key="content")
 logger = logging.getLogger(__name__)
+
+weaviate_client = weaviate.Client(f'http://{os.environ["WEAVIATE_SERVICE_NAME"]}:{os.environ["WEAVIATE_PORT"]}')
+
+create_class(
+    weaviate_client,
+    os.environ.get("WEAVIATE_DROP_COLLECTION", False),
+    os.environ.get("WEAVIATE_COLLECTION", "Document"),
+)
+
+vectorstore = Weaviate(
+    client=weaviate_client,
+    index_name=os.environ.get("WEAVIATE_COLLECTION", "Document"),
+    text_key="content",
+)
+
+
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
 
 
 @app.get("/health")
@@ -36,8 +48,12 @@ async def health():
 
 
 @app.get("/query")
-async def query(question: str, temperature: int = 0.7, n_docs: int = 10):
-    llm = AzureChatOpenAI(deployment_name="finetuner", streaming=True, temperature=temperature)
+async def query(question: str, temperature: float = 0.7, n_docs: int = 10):
+    llm = AzureChatOpenAI(
+        deployment_name=os.getenv("OPENAI_DEPLOYMENT_NAME"),
+        streaming=True,
+        temperature=temperature
+    )
     messages = [
         SystemMessage(
             content=(
@@ -63,14 +79,17 @@ async def query(question: str, temperature: int = 0.7, n_docs: int = 10):
         document_prompt=doc_prompt,
     )
     retrieval_qa = RetrievalQA(
-        retriever=vectorstore.as_retriever(search_kwargs={"k": n_docs}), combine_documents_chain=final_qa_chain
+        retriever=vectorstore.as_retriever(search_kwargs={"k": n_docs}),
+        combine_documents_chain=final_qa_chain,
     )
 
     def openai_streamer(retr_qa: RetrievalQA, text: str):
         for resp in retr_qa.run(text):
             yield resp
 
-    return StreamingResponse(openai_streamer(retrieval_qa, question), media_type='text/event-stream')
+    return StreamingResponse(
+        openai_streamer(retrieval_qa, question), media_type="text/event-stream"
+    )
 
 
 @app.post("/upload")

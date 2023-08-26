@@ -12,11 +12,10 @@ fastapi = "^0.101.1"
 uvicorn = "^0.23.2"
 unstructured = { extras = ["pdf"], version = "^0.10.5" }
 weaviate-client = "^3.23.0"
-python-dotenv = "^1.0.0"
 langchain = "^0.0.272"
 openai = "^0.27.9"
-pytest = "^7.4.0"
 httpx = "^0.24.1"
+pytest = "^7.4.0"
 
 
 [build-system]
