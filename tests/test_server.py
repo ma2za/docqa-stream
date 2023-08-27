@@ -1,3 +1,8 @@
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
 def test_health(test_client):
     response = test_client.get("/health")
     assert response.status_code == 200
@@ -10,7 +15,7 @@ def test_upload(test_client, monkeypatch):
 
     response = test_client.post(
         "/upload",
-        files={"file": ("rome_guide.pdf", open("tests/data/rome_guide.pdf", "rb"))},
+        files={"file": ("rome_guide.pdf", open("data/rome_guide.pdf", "rb"))},
         params={"chunk_size": 1000},
     )
     assert response.status_code == 200
@@ -24,7 +29,7 @@ def test_query(test_client, monkeypatch):
 
     _ = test_client.post(
         "/upload",
-        files={"file": ("rome_guide.pdf", open("tests/data/rome_guide.pdf", "rb"))},
+        files={"file": ("rome_guide.pdf", open("data/rome_guide.pdf", "rb"))},
         params={"chunk_size": 500}
     )
     response = test_client.get(
@@ -36,7 +41,4 @@ def test_query(test_client, monkeypatch):
         },
     )
     assert response.status_code == 200
-    assert (
-            response.text
-            == "Sure! My mad urges for eating whatever I want at dinnertime suggest that I try a delicious and juicy steak tonight. How does that sound?"
-    )
+    assert response.text == "Rome was founded in 753 BC according to legend."

@@ -28,7 +28,7 @@ def get_store():
 
     create_class(
         weaviate_client,
-        os.environ.get("WEAVIATE_DROP_COLLECTION", False),
+        os.environ.get("WEAVIATE_DROP_COLLECTION", "False") == "True",
         os.environ.get("WEAVIATE_COLLECTION", "Document"),
     )
 
