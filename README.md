@@ -1,7 +1,6 @@
 # DocQA Stream with FastAPI, Weaviate and Azure OpenAI
 
-I noticed that there aren't many examples on how to deploy via docker compose
-a **FastAPI** application backed by a self-hosted **Weaviate** vector store, so here is one.  
+**FastAPI** application backed by a self-hosted **Weaviate** vector store.  
 The interaction with Azure OpenAI happens through **langchain**.
 
 ## Quickstart
@@ -54,4 +53,10 @@ endpoint and start testing the API:
 
 ```text
 http://localhost:8000/docs
+```
+
+Run tests:
+
+```shell
+docker exec fastapi-application poetry run pytest .
 ```

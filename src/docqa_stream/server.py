@@ -4,7 +4,7 @@ import os
 
 import uvicorn
 import weaviate
-from fastapi import FastAPI, UploadFile
+from fastapi import FastAPI, UploadFile, Depends
 from langchain import LLMChain
 from langchain.chains import RetrievalQA, StuffDocumentsChain
 from langchain.chat_models import AzureChatOpenAI
@@ -22,19 +22,23 @@ app = FastAPI()
 
 logger = logging.getLogger(__name__)
 
-weaviate_client = weaviate.Client(f'http://{os.environ["WEAVIATE_SERVICE_NAME"]}:{os.environ["WEAVIATE_PORT"]}')
 
-create_class(
-    weaviate_client,
-    os.environ.get("WEAVIATE_DROP_COLLECTION", False),
-    os.environ.get("WEAVIATE_COLLECTION", "Document"),
-)
+def get_store():
+    weaviate_client = weaviate.Client(f'http://{os.environ["WEAVIATE_SERVICE_NAME"]}:{os.environ["WEAVIATE_PORT"]}')
 
-vectorstore = Weaviate(
-    client=weaviate_client,
-    index_name=os.environ.get("WEAVIATE_COLLECTION", "Document"),
-    text_key="content",
-)
+    create_class(
+        weaviate_client,
+        os.environ.get("WEAVIATE_DROP_COLLECTION", False),
+        os.environ.get("WEAVIATE_COLLECTION", "Document"),
+    )
+
+    vectorstore = Weaviate(
+        client=weaviate_client,
+        index_name=os.environ.get("WEAVIATE_COLLECTION", "Document"),
+        text_key="content",
+    )
+
+    yield vectorstore
 
 
 @app.get("/")
@@ -48,7 +52,10 @@ async def health():
 
 
 @app.get("/query")
-async def query(question: str, temperature: float = 0.7, n_docs: int = 10):
+async def query(question: str,
+                temperature: float = 0.7,
+                n_docs: int = 10,
+                vectorstore=Depends(get_store)):
     llm = AzureChatOpenAI(
         deployment_name=os.getenv("OPENAI_DEPLOYMENT_NAME"),
         streaming=True,
@@ -57,14 +64,13 @@ async def query(question: str, temperature: float = 0.7, n_docs: int = 10):
     messages = [
         SystemMessage(
             content=(
-                "You are a world class algorithm to answer "
-                "questions in a specific format."
+                "You are a world class algorithm to answer questions."
             )
         ),
-        HumanMessage(content="Answer question using the following context"),
+        HumanMessage(content="Answer question using only information contained in the following context: "),
         HumanMessagePromptTemplate.from_template("{context}"),
+        HumanMessage(content="Tips: If you can't find a relevant answer in the context, then say you don't know."),
         HumanMessagePromptTemplate.from_template("Question: {question}"),
-        HumanMessage(content="Tips: Make sure to answer in the correct format"),
     ]
     prompt = ChatPromptTemplate(messages=messages)
 
@@ -93,7 +99,9 @@ async def query(question: str, temperature: float = 0.7, n_docs: int = 10):
 
 
 @app.post("/upload")
-async def create_upload_file(file: UploadFile, chunk_size: int = 200):
+async def create_upload_file(file: UploadFile,
+                             chunk_size: int = 200,
+                             vectorstore=Depends(get_store)):
     data = await file.read()
     elements = partition_pdf(file=io.BytesIO(data))
     text = [ele.text for ele in elements]

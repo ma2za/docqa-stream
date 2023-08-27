@@ -1,25 +1,12 @@
-import os
-
-from fastapi.testclient import TestClient
-
-from src.docqa_stream.server import app, weaviate_client
-from src.docqa_stream.utils.schema import create_class
-
-test_client = TestClient(app)
-
-
-def test_health():
+def test_health(test_client):
     response = test_client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"message": "OK"}
 
 
-def test_upload():
-    create_class(
-        weaviate_client,
-        os.environ.get("WEAVIATE_DROP_COLLECTION", True),
-        os.environ.get("WEAVIATE_COLLECTION", "Document"),
-    )
+def test_upload(test_client, monkeypatch):
+    monkeypatch.setenv("WEAVIATE_COLLECTION", "Test_Document")
+    monkeypatch.setenv("WEAVIATE_DROP_COLLECTION", "True")
 
     response = test_client.post(
         "/upload",
@@ -31,21 +18,25 @@ def test_upload():
     assert isinstance(uuids, list) and len(uuids) == 73
 
 
-def test_query():
+def test_query(test_client, monkeypatch):
+    monkeypatch.setenv("WEAVIATE_COLLECTION", "Test_Document")
+    monkeypatch.setenv("WEAVIATE_DROP_COLLECTION", "True")
+
     _ = test_client.post(
         "/upload",
         files={"file": ("rome_guide.pdf", open("tests/data/rome_guide.pdf", "rb"))},
+        params={"chunk_size": 500}
     )
     response = test_client.get(
         "/query",
         params={
-            "question": "Be concise, can you give me a food suggestion?",
+            "question": "when was rome founded?",
             "temperature": 1,
-            "n_docs": 1,
+            "n_docs": 3,
         },
     )
     assert response.status_code == 200
     assert (
             response.text
-            == "Paolo Mazza's email address is mazzapaolo2019@gmail.com and his phone number is +393518339474."
+            == "Sure! My mad urges for eating whatever I want at dinnertime suggest that I try a delicious and juicy steak tonight. How does that sound?"
     )

@@ -3,18 +3,10 @@ version: '3.4'
 services:
   api:
     env_file: .env
-    command:
-      - poetry
-      - run
-      - uvicorn
-      - src.docqa_stream.server:app
-      - --host
-      - 0.0.0.0
-      - --port
-      - '${FASTAPI_PORT}'
+    command: poetry run uvicorn src.docqa_stream.server:app  --host  0.0.0.0 --port '${FASTAPI_PORT}'
     build:
       context: .
-      dockerfile: fastapi.Dockerfile
+      dockerfile: Dockerfile
     container_name: fastapi-application
     depends_on:
       - weaviate
