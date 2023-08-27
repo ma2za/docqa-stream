@@ -1,4 +1,7 @@
+import os
+
 import weaviate
+from langchain.vectorstores import Weaviate
 
 
 def create_class(
@@ -17,3 +20,23 @@ def create_class(
     }
     if not client.schema.exists(class_name):
         client.schema.create_class(schema)
+
+
+def get_store():
+    weaviate_client = weaviate.Client(
+        f'http://{os.environ["WEAVIATE_SERVICE_NAME"]}:{os.environ["WEAVIATE_PORT"]}'
+    )
+
+    create_class(
+        weaviate_client,
+        os.environ.get("WEAVIATE_DROP_COLLECTION", "False") == "True",
+        os.environ.get("WEAVIATE_COLLECTION", "Document"),
+    )
+
+    vectorstore = Weaviate(
+        client=weaviate_client,
+        index_name=os.environ.get("WEAVIATE_COLLECTION", "Document"),
+        text_key="content",
+    )
+
+    yield vectorstore

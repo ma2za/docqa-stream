@@ -30,7 +30,7 @@ def test_query(test_client, monkeypatch):
     _ = test_client.post(
         "/upload",
         files={"file": ("rome_guide.pdf", open("data/rome_guide.pdf", "rb"))},
-        params={"chunk_size": 500}
+        params={"chunk_size": 500},
     )
     response = test_client.get(
         "/query",

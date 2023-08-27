@@ -7,10 +7,10 @@ The interaction with Azure OpenAI happens through **langchain**.
 
 The API exposes 2 endpoints:
 
-- **/upload**: a POST with a .pdf document to store in a weaviate
+- **/files/upload**: a POST with a .pdf document to store in a weaviate
   collection.
 
-- **/query**: a GET with a question to ask based on the uploaded
+- **/files/query**: a GET with a question to ask based on the uploaded
   documents. The response will be streamed back to the user.
 
 ### 1) Set the environment
