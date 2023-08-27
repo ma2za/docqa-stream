@@ -1,0 +1,17 @@
+test_upload:
+  - inputs:
+      file: "tests/data/rome_guide.pdf"
+      filename: "rome_guide.pdf"
+      chunk_size: 1000
+    outputs:
+      length: 73
+test_query:
+  - inputs:
+      file: "tests/data/rome_guide.pdf"
+      filename: "rome_guide.pdf"
+      chunk_size: 1000
+      question: "when was rome founded?"
+      temperature: 1
+      n_docs: 3
+    outputs:
+      response: "Rome was founded in 753 BC according to legend."
