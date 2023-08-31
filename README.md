@@ -4,6 +4,8 @@ I noticed that there aren't many examples on how to deploy via docker compose
 a **FastAPI** application backed by a self-hosted **Weaviate** vector store, so here is one.  
 The interaction with Azure OpenAI happens through **langchain**.
 
+<img src="https://drive.google.com/uc?export=view&id=1i152Lw1hOJDRKYW5Cb2c7oLqYqlBrQ1_" width="300">
+
 ## Quickstart
 
 The API exposes 2 endpoints:
