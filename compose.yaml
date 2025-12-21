@@ -32,7 +32,7 @@ services:
       - '${WEAVIATE_PORT}'
       - --scheme
       - http
-    image: semitechnologies/weaviate:1.21.1
+    image: cr.weaviate.io/semitechnologies/weaviate:1.21.1
     ports:
       - '${WEAVIATE_PORT}:${WEAVIATE_PORT}'
     volumes:
