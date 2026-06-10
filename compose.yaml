@@ -1,18 +1,8 @@
-# Comments are provided throughout this file to help you get started.
-# If you need more help, visit the Docker compose reference guide at
-# https://docs.docker.com/compose/compose-file/
-
-# Here the instructions define your application as a service called "server".
-# This service is built from the Dockerfile in the current directory.
-# You can add other services your application may depend on here, such as a
-# database or a cache. For examples, see the Awesome Compose repository:
-# https://github.com/docker/awesome-compose
 ---
-version: '3.4'
 services:
   api:
     env_file: .env
-    command: poetry run uvicorn src.docqa_stream.server:app  --host  0.0.0.0 --port '${FASTAPI_PORT}'
+    command: poetry run uvicorn src.docqa_stream.server:app --host 0.0.0.0 --port '${FASTAPI_PORT}'
     build:
       context: .
       dockerfile: Dockerfile
@@ -32,9 +22,10 @@ services:
       - '${WEAVIATE_PORT}'
       - --scheme
       - http
-    image: cr.weaviate.io/semitechnologies/weaviate:1.21.1
+    image: cr.weaviate.io/semitechnologies/weaviate:1.38.0
     ports:
       - '${WEAVIATE_PORT}:${WEAVIATE_PORT}'
+      - '${WEAVIATE_GRPC_PORT:-50051}:50051'
     volumes:
       - weaviate_data:/var/lib/weaviate
     restart: "on-failure"
@@ -52,4 +43,3 @@ services:
       ENABLE_CUDA: '0'
 volumes:
   weaviate_data:
-...

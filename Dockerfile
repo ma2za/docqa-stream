@@ -5,7 +5,7 @@
 # https://docs.docker.com/engine/reference/builder/
 
 ARG PYTHON_VERSION=3.11.4
-FROM python:${PYTHON_VERSION}-slim as base
+FROM python:${PYTHON_VERSION}-slim AS base
 
 # Prevents Python from writing pyc files.
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -25,7 +25,7 @@ ENV POETRY_NO_INTERACTION=1 \
 # Install poetry separated from system interpreter
 RUN python3 -m venv $POETRY_VENV \
     && $POETRY_VENV/bin/pip install -U pip setuptools \
-    && $POETRY_VENV/bin/pip install poetry==1.6.1
+    && $POETRY_VENV/bin/pip install poetry==2.3.2
 
 ENV PATH="${PATH}:${POETRY_VENV}/bin"
 

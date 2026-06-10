@@ -1,13 +1,15 @@
 import io
 import os
 
-from langchain import LLMChain
-from langchain.chains import RetrievalQA, StuffDocumentsChain
-from langchain.chat_models import AzureChatOpenAI
-from langchain.prompts import (ChatPromptTemplate, HumanMessagePromptTemplate,
-                               PromptTemplate)
-from langchain.schema import HumanMessage, SystemMessage
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_classic.chains import LLMChain, RetrievalQA, StuffDocumentsChain
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    HumanMessagePromptTemplate,
+    PromptTemplate,
+)
+from langchain_openai import AzureChatOpenAI
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from unstructured.partition.pdf import partition_pdf
 
 
@@ -20,7 +22,7 @@ class FilesService:
     @staticmethod
     async def query(question, temperature, n_docs, vectorstore):
         llm = AzureChatOpenAI(
-            deployment_name=os.getenv("OPENAI_DEPLOYMENT_NAME"),
+            azure_deployment=os.getenv("OPENAI_DEPLOYMENT_NAME"),
             streaming=True,
             temperature=temperature,
         )

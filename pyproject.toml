@@ -1,22 +1,29 @@
-[tool.poetry]
+[project]
 name = "docqa-stream"
 version = "0.1.1"
 description = ""
-authors = ["ma2za <mazzapaolo2019@gmail.com>"]
+authors = [{ name = "ma2za", email = "mazzapaolo2019@gmail.com" }]
 readme = "README.md"
-packages = [{ include = "src/docqa_stream" }]
+requires-python = "<3.14,>=3.11.0"
+dependencies = [
+    "fastapi (>=0.136.3,<0.137.0)",
+    "uvicorn (>=0.49.0,<0.50.0)",
+    "unstructured[pdf]>=0.22.6,<0.23.0",
+    "weaviate-client>=4.21.3,<5.0.0",
+    "langchain>=1.2.0,<2.0.0",
+    "openai>=2.41.0,<3.0.0",
+    "httpx>=0.28.1,<0.29.0",
+    "pytest>=7.4,<10.0",
+    "pyyaml>=6.0.1,<7.0.0",
+    "langchain-openai>=1.3.0,<2.0.0",
+    "langchain-community>=0.4.2,<0.5.0",
+    "langchain-weaviate>=0.0.6,<0.0.7",
+    "unstructured-inference>=1.6.12,<2.0.0",
+    "python-multipart>=0.0.32,<0.0.33",
+]
 
-[tool.poetry.dependencies]
-python = "<3.14,>=3.11.0"
-fastapi = "^0.127.0"
-uvicorn = "^0.23.2"
-unstructured = { extras = ["pdf"], version = "^0.22.6" }
-weaviate-client = "^3.23.0"
-langchain = "^1.2.0"
-openai = "^0.27.9"
-httpx = "^0.28.1"
-pytest = ">=7.4,<10.0"
-pyyaml = "^6.0.1"
+[tool.poetry]
+packages = [{ include = "src/docqa_stream" }]
 
 [tool.poetry.group.dev.dependencies]
 
