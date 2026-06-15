@@ -41,5 +41,19 @@ services:
     image: semitechnologies/transformers-inference:sentence-transformers-multi-qa-MiniLM-L6-cos-v1
     environment:
       ENABLE_CUDA: '0'
+  pgvector:
+    image: pgvector/pgvector:pg16
+    profiles:
+      - pgvector
+    environment:
+      POSTGRES_USER: '${PGVECTOR_USER:-docqa}'
+      POSTGRES_PASSWORD: '${PGVECTOR_PASSWORD:-docqa}'
+      POSTGRES_DB: '${PGVECTOR_DB:-docqa}'
+    ports:
+      - '${PGVECTOR_PORT:-5432}:5432'
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    restart: "on-failure"
 volumes:
   weaviate_data:
+  pgvector_data:

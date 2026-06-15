@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DocQA Stream</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #1b1f24;
+        background: #f5f7fb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 32px 20px;
+      }
+
+      header {
+        margin-bottom: 24px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 32px;
+        line-height: 1.15;
+      }
+
+      p {
+        margin: 0;
+        color: #5d6673;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        gap: 16px;
+      }
+
+      section {
+        background: #ffffff;
+        border: 1px solid #d8dee8;
+        border-radius: 8px;
+        padding: 16px;
+      }
+
+      h2 {
+        margin: 0 0 14px;
+        font-size: 16px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      input,
+      button {
+        width: 100%;
+        min-height: 40px;
+        border-radius: 6px;
+        font: inherit;
+      }
+
+      input {
+        border: 1px solid #c9d2df;
+        padding: 8px 10px;
+        background: #ffffff;
+      }
+
+      button {
+        margin-top: 12px;
+        border: 0;
+        background: #176b87;
+        color: #ffffff;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        background: #93a4b3;
+        cursor: not-allowed;
+      }
+
+      .status {
+        min-height: 22px;
+        margin-top: 12px;
+        color: #425466;
+        font-size: 13px;
+      }
+
+      .answer {
+        min-height: 220px;
+        margin-top: 12px;
+        padding: 14px;
+        border: 1px solid #d8dee8;
+        border-radius: 6px;
+        background: #fbfcfe;
+        white-space: pre-wrap;
+      }
+
+      .citations {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .citation {
+        padding: 10px;
+        border: 1px solid #d8dee8;
+        border-radius: 6px;
+        background: #ffffff;
+        font-size: 13px;
+      }
+
+      .citation strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      @media (max-width: 760px) {
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>DocQA Stream</h1>
+        <p>Upload a PDF, ask a question, and stream an answer with citations.</p>
+      </header>
+
+      <div class="workspace">
+        <section>
+          <h2>Document</h2>
+          <form id="upload-form">
+            <label for="file">PDF file</label>
+            <input id="file" name="file" type="file" accept="application/pdf" required>
+            <button id="upload-button" type="submit">Upload PDF</button>
+          </form>
+          <div id="upload-status" class="status"></div>
+        </section>
+
+        <section>
+          <h2>Question</h2>
+          <form id="query-form">
+            <label for="question">Ask the indexed documents</label>
+            <input id="question" name="question" type="text" placeholder="When was Rome founded?" required>
+            <button id="query-button" type="submit">Ask</button>
+          </form>
+          <div id="query-status" class="status"></div>
+          <div id="answer" class="answer"></div>
+          <div id="citations" class="citations"></div>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const uploadForm = document.querySelector("#upload-form");
+      const queryForm = document.querySelector("#query-form");
+      const uploadStatus = document.querySelector("#upload-status");
+      const queryStatus = document.querySelector("#query-status");
+      const answer = document.querySelector("#answer");
+      const citations = document.querySelector("#citations");
+
+      uploadForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const file = document.querySelector("#file").files[0];
+        const data = new FormData();
+        data.append("file", file);
+        uploadStatus.textContent = "Uploading...";
+
+        const response = await fetch("/files/upload", {
+          method: "POST",
+          body: data,
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+          uploadStatus.textContent = payload.detail || "Upload failed.";
+          return;
+        }
+
+        uploadStatus.textContent = `${payload.filename} indexed as ${payload.chunks_added} chunks.`;
+      });
+
+      queryForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const question = document.querySelector("#question").value;
+        answer.textContent = "";
+        citations.textContent = "";
+        queryStatus.textContent = "Streaming...";
+
+        const response = await fetch(`/files/query?question=${encodeURIComponent(question)}`);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) {
+            break;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const events = buffer.split("\n\n");
+          buffer = events.pop();
+
+          for (const eventText of events) {
+            const lines = eventText.split("\n");
+            const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
+            const dataLine = lines.find((line) => line.startsWith("data:"));
+            if (!dataLine) {
+              continue;
+            }
+            const payload = JSON.parse(dataLine.slice(5));
+
+            if (eventName === "token") {
+              answer.textContent += payload.text;
+            }
+
+            if (eventName === "citations") {
+              queryStatus.textContent = "Done.";
+              citations.replaceChildren(
+                ...payload.citations.map((citation) => {
+                  const node = document.createElement("div");
+                  node.className = "citation";
+                  node.innerHTML = `<strong>${citation.filename || "Document"} page ${citation.page || "unknown"}, chunk ${citation.chunk_index}</strong>${citation.preview || ""}`;
+                  return node;
+                })
+              );
+            }
+          }
+        }
+      });
+    </script>
+  </body>
+</html>
