@@ -6,6 +6,7 @@
 
 ARG PYTHON_VERSION=3.11.4
 FROM python:${PYTHON_VERSION}-slim AS base
+ARG INSTALL_EXTRAS=""
 
 # Prevents Python from writing pyc files.
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -33,6 +34,11 @@ WORKDIR /app
 
 COPY pyproject.toml poetry.lock README.md ./
 
-RUN --mount=type=cache,target=$POETRY_CACHE_DIR poetry install --without dev --no-root
+RUN --mount=type=cache,target=$POETRY_CACHE_DIR \
+    if [ -n "$INSTALL_EXTRAS" ]; then \
+        poetry install --without dev --extras "$INSTALL_EXTRAS" --no-root; \
+    else \
+        poetry install --without dev --no-root; \
+    fi
 
 COPY . .

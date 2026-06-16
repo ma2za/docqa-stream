@@ -2,29 +2,36 @@
 services:
   api:
     env_file: .env
-    command: poetry run uvicorn src.docqa_stream.server:app --host 0.0.0.0 --port '${FASTAPI_PORT}' --workers '${WEB_CONCURRENCY:-1}'
+    command: poetry run uvicorn src.docqa_stream.server:app --host 0.0.0.0 --port '${FASTAPI_PORT:-8000}' --workers '${WEB_CONCURRENCY:-1}'
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        INSTALL_EXTRAS: '${INSTALL_EXTRAS:-weaviate azure}'
     container_name: fastapi-application
     depends_on:
       - weaviate
       - t2v-transformers
     ports:
-      - '${FASTAPI_PORT}:${FASTAPI_PORT}'
+      - '${FASTAPI_PORT:-8000}:${FASTAPI_PORT:-8000}'
     restart: "on-failure"
+    healthcheck:
+      test: ["CMD-SHELL", "poetry run python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:${FASTAPI_PORT:-8000}/health', timeout=5).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
   weaviate:
     env_file: .env
     command:
       - --host
       - 0.0.0.0
       - --port
-      - '${WEAVIATE_PORT}'
+      - '${WEAVIATE_PORT:-8080}'
       - --scheme
       - http
     image: cr.weaviate.io/semitechnologies/weaviate:1.38.0
     ports:
-      - '${WEAVIATE_PORT}:${WEAVIATE_PORT}'
+      - '${WEAVIATE_PORT:-8080}:${WEAVIATE_PORT:-8080}'
       - '${WEAVIATE_GRPC_PORT:-50051}:50051'
     volumes:
       - weaviate_data:/var/lib/weaviate
@@ -54,6 +61,26 @@ services:
     volumes:
       - pgvector_data:/var/lib/postgresql/data
     restart: "on-failure"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  ollama:
+    image: ollama/ollama:latest
+    profiles:
+      - ollama
+    ports:
+      - '${OLLAMA_PORT:-11434}:11434'
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: "on-failure"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 volumes:
   weaviate_data:
   pgvector_data:
+  ollama_data:

@@ -1,6 +1,6 @@
 # DocQA Stream
 
-Self-hosted PDF Q&A API with FastAPI, Weaviate or pgvector, streaming responses, and Azure OpenAI, OpenAI-compatible models, or Vertex AI.
+Self-hosted PDF Q&A API with FastAPI, Weaviate or pgvector, streaming responses, and Azure OpenAI, OpenAI-compatible models, Vertex AI, or local Ollama.
 
 DocQA Stream is a small RAG starter for uploading PDFs, indexing them in a local vector store, and asking questions over the indexed content. Answers stream back over server-sent events and finish with citation metadata.
 
@@ -12,7 +12,7 @@ Browser or curl
   -> Unstructured PDF parsing
   -> LangChain text splitting
   -> Weaviate text2vec-transformers or PostgreSQL pgvector
-  -> Azure OpenAI, OpenAI-compatible, or Vertex AI chat model
+  -> Azure OpenAI, OpenAI-compatible, Vertex AI, or Ollama chat model
 ```
 
 ## Features
@@ -22,7 +22,7 @@ Browser or curl
 - Streaming Q&A endpoint with citation metadata.
 - Document list and delete endpoints.
 - Minimal browser demo at `http://localhost:8000`.
-- Azure OpenAI by default, with OpenAI-compatible and Vertex AI provider options.
+- Azure OpenAI by default, with OpenAI-compatible, Vertex AI, and Ollama provider options.
 - `VECTOR_STORE=weaviate` by default, or `VECTOR_STORE=pgvector` for PostgreSQL-backed vectors.
 
 ## Quickstart
@@ -50,6 +50,12 @@ For pgvector with local embeddings:
 
 ```shell
 poetry install --extras "pgvector local"
+```
+
+For the fully local Ollama example:
+
+```shell
+poetry install --extras "pgvector local ollama"
 ```
 
 For all supported backends and model providers:
@@ -92,6 +98,60 @@ To run with the pgvector backend, set `VECTOR_STORE=pgvector` and include the pg
 
 ```shell
 docker compose --profile pgvector up --build
+```
+
+## Fully Local Example
+
+This example uses pgvector, local sentence-transformers embeddings, and Ollama. No cloud API key is required.
+
+You need:
+
+- Docker and Docker Compose
+- Internet access for the first run to download container images, the Ollama model, and the local embedding model
+- Enough memory to run PostgreSQL, the API, the embedding model, and the Ollama model
+
+Start the local stack:
+
+```shell
+docker compose -f examples/compose.fully-local.yaml --env-file examples/fully-local.env up --build -d
+```
+
+Pull the Ollama model:
+
+```shell
+docker compose -f examples/compose.fully-local.yaml --env-file examples/fully-local.env exec ollama ollama pull qwen2.5:0.5b
+```
+
+The default is intentionally small but still useful. Ollama lists `qwen2.5:0.5b` at 398MB with a 32K context window. `smollm2:135m` is smaller at 271MB, but it is too weak for reliable answers in this demo.
+
+If the Ollama container image is slow to pull, run Ollama on the host and keep pgvector in Docker:
+
+```shell
+ollama pull qwen2.5:0.5b
+docker compose -f examples/compose.fully-local.yaml --env-file examples/fully-local.env up -d pgvector
+```
+
+Then run the API locally with `OLLAMA_BASE_URL=http://localhost:11434` and `PGVECTOR_CONNECTION=postgresql+psycopg://docqa:docqa@localhost:5432/docqa`.
+
+Check the API:
+
+```shell
+curl http://localhost:8000/health
+```
+
+Run the smoke example:
+
+```shell
+poetry install --extras "pgvector local ollama"
+poetry run python examples/fully_local_smoke.py
+```
+
+The first smoke run can take several minutes while the local embedding model is downloaded and loaded. Later runs reuse the indexed sample PDF and cached embedding model.
+
+Open the demo UI:
+
+```text
+http://localhost:8000
 ```
 
 Check the API health endpoint.
@@ -173,6 +233,7 @@ Runtime integrations are optional dependencies:
 azure       Azure OpenAI chat and embeddings
 openai      OpenAI-compatible chat and embeddings
 vertexai    Google Vertex AI chat and embeddings
+ollama      Local Ollama chat models
 local       Local sentence-transformers embeddings
 weaviate    Weaviate vector store
 pgvector    PostgreSQL pgvector store
@@ -221,6 +282,18 @@ GOOGLE_APPLICATION_CREDENTIALS=
 
 If `GOOGLE_APPLICATION_CREDENTIALS` is not set, Vertex AI uses Google Application Default Credentials from the environment.
 
+Optional Ollama provider:
+
+```text
+LLM_PROVIDER=ollama
+OLLAMA_MODEL=qwen2.5:0.5b
+OLLAMA_BASE_URL=http://ollama:11434
+OLLAMA_KEEP_ALIVE=30m
+OLLAMA_NUM_CTX=2048
+OLLAMA_NUM_THREAD=
+OLLAMA_NUM_PREDICT=256
+```
+
 Optional local embeddings:
 
 ```text
@@ -264,9 +337,11 @@ LIST_DOCUMENT_CHUNK_SCAN_LIMIT=10000
 ## Production Notes
 
 - Run multiple API workers with `WEB_CONCURRENCY` after sizing CPU and memory for PDF parsing and model calls.
+- Each worker keeps its own embedding model cache. Increasing `WEB_CONCURRENCY` improves concurrency but also multiplies local embedding memory use.
 - Keep `MAX_UPLOAD_BYTES` and `MAX_CHUNKS_PER_UPLOAD` low enough to prevent one upload from monopolizing memory.
 - Increase `VECTORSTORE_ADD_BATCH_SIZE` only after checking vector-store write latency and memory use.
 - Use pgvector with fixed `EMBEDDING_DIMENSIONS` when you want PostgreSQL indexes over a known vector width.
+- Keep `OLLAMA_NUM_CTX` and `OLLAMA_NUM_PREDICT` bounded for local models. Large context windows raise memory use even when the model file is small.
 - For very large installations, move document manifests and ingestion jobs into a separate database and queue. This API now bounds work per request, but it still performs ingestion inside the request lifecycle.
 
 ## Troubleshooting
@@ -278,6 +353,7 @@ LIST_DOCUMENT_CHUNK_SCAN_LIMIT=10000
 - Query fails with an authentication error: check the model deployment name, endpoint, API key, and API version.
 - Pgvector embedding fails: check `EMBEDDINGS_PROVIDER` and the embedding model or deployment variable.
 - Local embeddings fail on first run: check network access to download the model, or set `LOCAL_EMBEDDING_LOCAL_FILES_ONLY=True` after the model is already cached.
+- Local example returns weak answers: use `qwen2.5:0.5b` or a larger Ollama model. `smollm2:135m` is mainly useful for proving the wiring on very small machines.
 - Vertex AI fails before model invocation: check `VERTEXAI_PROJECT`, `VERTEXAI_LOCATION`, and Google Application Default Credentials or `GOOGLE_APPLICATION_CREDENTIALS`.
 - Empty PDF extraction: try a text-based PDF first. Scanned PDFs may require OCR-related system dependencies.
 

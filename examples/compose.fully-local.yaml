@@ -1,0 +1,58 @@
+---
+services:
+  api:
+    env_file: fully-local.env
+    command: poetry run uvicorn src.docqa_stream.server:app --host 0.0.0.0 --port '${FASTAPI_PORT}' --workers '${WEB_CONCURRENCY:-1}'
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        INSTALL_EXTRAS: pgvector local ollama
+    container_name: docqa-stream-local-api
+    depends_on:
+      pgvector:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    ports:
+      - '${FASTAPI_PORT}:${FASTAPI_PORT}'
+    restart: "on-failure"
+    healthcheck:
+      test: ["CMD-SHELL", "poetry run python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:${FASTAPI_PORT}/health', timeout=5).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  pgvector:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: '${PGVECTOR_USER:-docqa}'
+      POSTGRES_PASSWORD: '${PGVECTOR_PASSWORD:-docqa}'
+      POSTGRES_DB: '${PGVECTOR_DB:-docqa}'
+    ports:
+      - '${PGVECTOR_PORT:-5432}:5432'
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    restart: "on-failure"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - '${OLLAMA_PORT:-11434}:11434'
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: "on-failure"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgvector_data:
+  ollama_data:

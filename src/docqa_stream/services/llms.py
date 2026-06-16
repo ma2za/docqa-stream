@@ -19,6 +19,17 @@ def get_chat_vertexai_class():
     return ChatVertexAI
 
 
+def get_chat_ollama_class():
+    from langchain_ollama import ChatOllama
+
+    return ChatOllama
+
+
+def set_optional_int(kwargs, key, env_name):
+    if os.getenv(env_name):
+        kwargs[key] = int(os.environ[env_name])
+
+
 def get_chat_model(temperature):
     provider = os.getenv("LLM_PROVIDER", "azure").lower()
 
@@ -63,5 +74,19 @@ def get_chat_model(temperature):
         if os.getenv("VERTEXAI_LOCATION"):
             kwargs["location"] = os.environ["VERTEXAI_LOCATION"]
         return get_chat_vertexai_class()(**kwargs)
+
+    if provider == "ollama":
+        kwargs = {
+            "model": os.environ["OLLAMA_MODEL"],
+            "temperature": temperature,
+        }
+        if os.getenv("OLLAMA_BASE_URL"):
+            kwargs["base_url"] = os.environ["OLLAMA_BASE_URL"]
+        if os.getenv("OLLAMA_KEEP_ALIVE"):
+            kwargs["keep_alive"] = os.environ["OLLAMA_KEEP_ALIVE"]
+        set_optional_int(kwargs, "num_ctx", "OLLAMA_NUM_CTX")
+        set_optional_int(kwargs, "num_thread", "OLLAMA_NUM_THREAD")
+        set_optional_int(kwargs, "num_predict", "OLLAMA_NUM_PREDICT")
+        return get_chat_ollama_class()(**kwargs)
 
     raise ValueError(f"Unsupported LLM_PROVIDER: {provider}")

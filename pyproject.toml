@@ -16,6 +16,7 @@ keywords = [
     "azure-openai",
     "vertex-ai",
     "gemini",
+    "ollama",
     "local-embeddings",
     "docker-compose",
     "streaming",
@@ -43,6 +44,9 @@ openai = [
 vertexai = [
     "langchain-google-vertexai>=3.2.4,<4.0.0",
 ]
+ollama = [
+    "langchain-ollama>=1.1.0,<2.0.0",
+]
 weaviate = [
     "weaviate-client>=4.21.3,<5.0.0",
     "langchain-weaviate>=0.0.6,<0.0.7",
@@ -54,6 +58,7 @@ all = [
     "openai>=2.41.0,<3.0.0",
     "langchain-openai>=1.3.0,<2.0.0",
     "langchain-google-vertexai>=3.2.4,<4.0.0",
+    "langchain-ollama>=1.1.0,<2.0.0",
     "weaviate-client>=4.21.3,<5.0.0",
     "langchain-weaviate>=0.0.6,<0.0.7",
     "langchain-postgres>=0.0.17,<0.0.18",

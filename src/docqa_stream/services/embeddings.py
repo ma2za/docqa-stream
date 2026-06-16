@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 
 from langchain_core.embeddings import Embeddings
 
@@ -57,6 +58,23 @@ class LocalSentenceTransformerEmbeddings(Embeddings):
         return self.embed_documents([text])[0]
 
 
+@lru_cache(maxsize=8)
+def get_local_embeddings_model(
+    model_name,
+    device,
+    cache_folder,
+    local_files_only,
+    dimensions,
+):
+    return LocalSentenceTransformerEmbeddings(
+        model_name=model_name,
+        device=device,
+        cache_folder=cache_folder,
+        local_files_only=local_files_only,
+        dimensions=dimensions,
+    )
+
+
 def get_embeddings_model():
     provider = os.getenv("EMBEDDINGS_PROVIDER") or os.getenv("LLM_PROVIDER", "azure")
     provider = provider.lower()
@@ -107,7 +125,7 @@ def get_embeddings_model():
         return get_vertexai_embeddings_class()(**kwargs)
 
     if provider == "local":
-        return LocalSentenceTransformerEmbeddings(
+        return get_local_embeddings_model(
             model_name=os.environ["LOCAL_EMBEDDING_MODEL"],
             device=os.getenv("LOCAL_EMBEDDING_DEVICE"),
             cache_folder=os.getenv("LOCAL_EMBEDDING_CACHE_FOLDER"),
