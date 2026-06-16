@@ -1,6 +1,7 @@
 import os
 
 from ..services.embeddings import get_embeddings_model
+from .. import settings
 
 
 def create_class(client, drop: bool = False, class_name: str = "Document"):
@@ -26,10 +27,11 @@ def create_class(client, drop: bool = False, class_name: str = "Document"):
 
 
 class WeaviateDocumentStore:
-    def __init__(self, client, collection_name, vectorstore):
+    def __init__(self, client, collection_name, vectorstore, filter_builder=None):
         self.client = client
         self.collection_name = collection_name
         self.vectorstore = vectorstore
+        self.filter_builder = filter_builder or get_weaviate_document_filter
 
     def add_documents(self, docs):
         return self.vectorstore.add_documents(docs)
@@ -37,9 +39,11 @@ class WeaviateDocumentStore:
     def similarity_search_with_score(self, query, k):
         return self.vectorstore.similarity_search_with_score(query, k=k)
 
-    def list_documents(self):
+    def list_documents(self, limit=50, offset=0):
         collection = self.client.collections.use(self.collection_name)
-        response = collection.query.fetch_objects(limit=10000)
+        response = collection.query.fetch_objects(
+            limit=settings.LIST_DOCUMENT_CHUNK_SCAN_LIMIT
+        )
         documents = {}
 
         for obj in response.objects:
@@ -71,13 +75,13 @@ class WeaviateDocumentStore:
                     "pages": sorted(document["pages"]),
                 }
             )
-        return sorted(output, key=lambda item: item["filename"] or "")
+        return sorted(output, key=lambda item: item["filename"] or "")[
+            offset : offset + limit
+        ]
 
     def delete_document(self, document_id):
-        from weaviate.classes.query import Filter
-
         collection = self.client.collections.use(self.collection_name)
-        where = Filter.by_property("document_id").equal(document_id)
+        where = self.filter_builder(document_id)
         matched = collection.query.fetch_objects(filters=where, limit=1)
         if not matched.objects:
             return 0
@@ -106,7 +110,7 @@ class PGVectorDocumentStore:
     def _collection(self, session):
         return self.CollectionStore.get_by_name(session, self.vectorstore.collection_name)
 
-    def list_documents(self):
+    def list_documents(self, limit=50, offset=0):
         from sqlalchemy import select
 
         with self.vectorstore.session_maker() as session:
@@ -117,7 +121,7 @@ class PGVectorDocumentStore:
             rows = session.execute(
                 select(self.EmbeddingStore.cmetadata).where(
                     self.EmbeddingStore.collection_id == collection.uuid
-                )
+                ).limit(settings.LIST_DOCUMENT_CHUNK_SCAN_LIMIT)
             ).all()
 
         documents = {}
@@ -150,7 +154,9 @@ class PGVectorDocumentStore:
                     "pages": sorted(document["pages"]),
                 }
             )
-        return sorted(output, key=lambda item: item["filename"] or "")
+        return sorted(output, key=lambda item: item["filename"] or "")[
+            offset : offset + limit
+        ]
 
     def delete_document(self, document_id):
         from sqlalchemy import delete
@@ -168,6 +174,12 @@ class PGVectorDocumentStore:
             )
             session.commit()
             return result.rowcount or 0
+
+
+def get_weaviate_document_filter(document_id):
+    from weaviate.classes.query import Filter
+
+    return Filter.by_property("document_id").equal(document_id)
 
 
 def get_pgvector_tables():
@@ -211,10 +223,12 @@ def get_weaviate_store():
 def get_pgvector_store():
     from langchain_postgres import PGVector
 
+    embedding_dimensions = os.getenv("EMBEDDING_DIMENSIONS")
     vectorstore = PGVector(
         embeddings=get_embeddings_model(),
         collection_name=os.environ.get("PGVECTOR_COLLECTION", "docqa_stream"),
         connection=os.environ["PGVECTOR_CONNECTION"],
+        embedding_length=int(embedding_dimensions) if embedding_dimensions else None,
         use_jsonb=True,
         pre_delete_collection=os.environ.get("PGVECTOR_DROP_COLLECTION", "False")
         == "True",

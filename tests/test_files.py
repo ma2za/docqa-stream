@@ -44,8 +44,10 @@ class FakeVectorStore:
             )
         ]
 
-    def list_documents(self):
-        return self.documents
+    def list_documents(self, limit=50, offset=0):
+        self.list_limit = limit
+        self.list_offset = offset
+        return self.documents[offset : offset + limit]
 
     def delete_document(self, document_id):
         return self.deleted.get(document_id, 0)
@@ -71,8 +73,14 @@ class FakeUpload:
         self.filename = filename
         self.data = data
 
-    async def read(self):
-        return self.data
+    async def read(self, size=-1):
+        if size == -1:
+            output = self.data
+            self.data = b""
+            return output
+        output = self.data[:size]
+        self.data = self.data[size:]
+        return output
 
 
 def test_upload_api_returns_document_summary(test_client, test_files, monkeypatch):
@@ -126,6 +134,22 @@ def test_upload_rejects_empty_pdf(test_client):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Uploaded file is empty."
+
+
+def test_upload_rejects_oversized_pdf(fake_store, monkeypatch):
+    monkeypatch.setattr("src.docqa_stream.settings.MAX_UPLOAD_BYTES", 4)
+    monkeypatch.setattr("src.docqa_stream.settings.UPLOAD_READ_CHUNK_BYTES", 2)
+
+    with pytest.raises(Exception) as exc_info:
+        asyncio.run(
+            FilesService.upload(
+                FakeUpload("large.pdf", b"12345"),
+                1000,
+                fake_store,
+            )
+        )
+
+    assert exc_info.value.status_code == 413
 
 
 def test_upload_stores_document_metadata(fake_store, monkeypatch):
@@ -242,7 +266,10 @@ def test_list_files(test_client):
                 "chunks": 2,
                 "pages": [1],
             }
-        ]
+        ],
+        "limit": 50,
+        "offset": 0,
+        "count": 1,
     }
 
 

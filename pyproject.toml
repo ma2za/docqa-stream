@@ -16,6 +16,7 @@ keywords = [
     "azure-openai",
     "vertex-ai",
     "gemini",
+    "local-embeddings",
     "docker-compose",
     "streaming",
 ]
@@ -56,6 +57,10 @@ all = [
     "weaviate-client>=4.21.3,<5.0.0",
     "langchain-weaviate>=0.0.6,<0.0.7",
     "langchain-postgres>=0.0.17,<0.0.18",
+    "sentence-transformers>=5.5.1,<6.0.0",
+]
+local = [
+    "sentence-transformers>=5.5.1,<6.0.0",
 ]
 
 [tool.poetry]

@@ -10,6 +10,8 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Use `poetry install --extras "pgvector local"` when working only on the self-hosted pgvector/local-embeddings path.
+
 The API runs at `http://localhost:8000`, the demo UI is served from `/`, and the OpenAPI docs are served from `/docs`.
 
 ## Tests

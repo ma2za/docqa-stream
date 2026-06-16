@@ -87,7 +87,12 @@ def test_delete_document_returns_successful_delete_count():
         data=FakeData(3),
     )
     client = SimpleNamespace(collections=FakeCollections(collection))
-    store = WeaviateDocumentStore(client, "Document", None)
+    store = WeaviateDocumentStore(
+        client,
+        "Document",
+        None,
+        filter_builder=lambda document_id: {"document_id": document_id},
+    )
 
     assert store.delete_document("doc-1") == 3
     assert collection.data.verbose is True
@@ -96,7 +101,12 @@ def test_delete_document_returns_successful_delete_count():
 def test_delete_document_returns_zero_when_missing():
     collection = SimpleNamespace(query=FakeQuery([]), data=FakeData(0))
     client = SimpleNamespace(collections=FakeCollections(collection))
-    store = WeaviateDocumentStore(client, "Document", None)
+    store = WeaviateDocumentStore(
+        client,
+        "Document",
+        None,
+        filter_builder=lambda document_id: {"document_id": document_id},
+    )
 
     assert store.delete_document("missing") == 0
 

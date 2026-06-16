@@ -5,7 +5,9 @@ from uuid import uuid4
 from fastapi import HTTPException
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from starlette.concurrency import run_in_threadpool
 
+from .. import settings
 from .llms import get_chat_model
 
 
@@ -40,7 +42,7 @@ class FilesService:
             "page": metadata.get("page"),
             "chunk_index": metadata.get("chunk_index"),
             "score": score,
-            "preview": doc.page_content[:240].strip(),
+            "preview": doc.page_content[: settings.CITATION_PREVIEW_CHARS].strip(),
         }
 
     @staticmethod
@@ -49,7 +51,11 @@ class FilesService:
 
     @staticmethod
     async def query(question, temperature, n_docs, vectorstore):
-        docs_with_scores = vectorstore.similarity_search_with_score(question, k=n_docs)
+        docs_with_scores = await run_in_threadpool(
+            vectorstore.similarity_search_with_score,
+            question,
+            n_docs,
+        )
         context = "\n\n".join(
             f"Source {index + 1}: {doc.page_content}"
             for index, (doc, _score) in enumerate(docs_with_scores)
@@ -82,12 +88,12 @@ class FilesService:
         if not file.filename or not file.filename.lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail="Only PDF uploads are supported.")
 
-        data = await file.read()
+        data = await FilesService._read_upload(file)
         if not data:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
         document_id = str(uuid4())
-        elements = partition_pdf_file(file=io.BytesIO(data))
+        elements = await run_in_threadpool(partition_pdf_file, io.BytesIO(data))
         source_docs = []
 
         for element in elements:
@@ -115,16 +121,26 @@ class FilesService:
 
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
-            chunk_overlap=20,
+            chunk_overlap=settings.CHUNK_OVERLAP,
             length_function=len,
             add_start_index=True,
         )
 
         docs = text_splitter.split_documents(source_docs)
+        if len(docs) > settings.MAX_CHUNKS_PER_UPLOAD:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Document produced {len(docs)} chunks, above the limit of {settings.MAX_CHUNKS_PER_UPLOAD}.",
+            )
+
         for chunk_index, doc in enumerate(docs):
             doc.metadata["chunk_index"] = chunk_index
 
-        vectorstore.add_documents(docs)
+        for index in range(0, len(docs), settings.VECTORSTORE_ADD_BATCH_SIZE):
+            await run_in_threadpool(
+                vectorstore.add_documents,
+                docs[index : index + settings.VECTORSTORE_ADD_BATCH_SIZE],
+            )
         return {
             "document_id": document_id,
             "filename": file.filename,
@@ -132,12 +148,33 @@ class FilesService:
         }
 
     @staticmethod
-    async def list(vectorstore):
-        return vectorstore.list_documents()
+    async def _read_upload(file):
+        data = bytearray()
+        while True:
+            chunk = await file.read(settings.UPLOAD_READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            data.extend(chunk)
+            if len(data) > settings.MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Uploaded file exceeds {settings.MAX_UPLOAD_BYTES} bytes.",
+                )
+        return bytes(data)
+
+    @staticmethod
+    async def list(vectorstore, limit, offset):
+        documents = await run_in_threadpool(vectorstore.list_documents, limit, offset)
+        return {
+            "documents": documents,
+            "limit": limit,
+            "offset": offset,
+            "count": len(documents),
+        }
 
     @staticmethod
     async def delete(document_id, vectorstore):
-        deleted = vectorstore.delete_document(document_id)
+        deleted = await run_in_threadpool(vectorstore.delete_document, document_id)
         if deleted == 0:
             raise HTTPException(status_code=404, detail="Document not found.")
         return {"document_id": document_id, "chunks_deleted": deleted}

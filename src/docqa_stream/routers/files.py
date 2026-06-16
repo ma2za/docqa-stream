@@ -30,8 +30,12 @@ async def upload(
 
 
 @router.get("")
-async def list_files(vectorstore=Depends(get_store)):
-    return {"documents": await FilesService.list(vectorstore)}
+async def list_files(
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    vectorstore=Depends(get_store),
+):
+    return await FilesService.list(vectorstore, limit, offset)
 
 
 @router.delete("/{document_id}")
