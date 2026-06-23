@@ -193,7 +193,27 @@ Expected response:
 {
   "document_id": "8f50a3f9-8a95-4c72-b4ad-3e17613d1219",
   "filename": "rome_guide.pdf",
-  "chunks_added": 73
+  "status": "queued",
+  "chunks_added": 0,
+  "error": null
+}
+```
+
+Check upload status.
+
+```shell
+curl "http://localhost:8000/files/uploads/8f50a3f9-8a95-4c72-b4ad-3e17613d1219"
+```
+
+Expected response after indexing finishes:
+
+```json
+{
+  "document_id": "8f50a3f9-8a95-4c72-b4ad-3e17613d1219",
+  "filename": "rome_guide.pdf",
+  "status": "completed",
+  "chunks_added": 73,
+  "error": null
 }
 ```
 
@@ -211,6 +231,13 @@ data: {"text":"Rome"}
 
 event: citations
 data: {"citations":[{"filename":"rome_guide.pdf","page":1,"chunk_index":0,"score":0.82,"preview":"..."}]}
+```
+
+Provider failures are returned as an `error` event.
+
+```text
+event: error
+data: {"message":"provider unavailable"}
 ```
 
 List indexed documents.
@@ -330,19 +357,20 @@ VECTORSTORE_ADD_BATCH_SIZE=128
 CHUNK_OVERLAP=20
 CITATION_PREVIEW_CHARS=240
 LIST_DOCUMENT_CHUNK_SCAN_LIMIT=10000
+MAX_QUESTION_CHARS=2000
 ```
 
-`GET /files` is paginated with `limit` and `offset`. `LIST_DOCUMENT_CHUNK_SCAN_LIMIT` caps how many vector-store chunks are scanned to produce document summaries.
+`GET /files` is paginated with `limit` and `offset`. `LIST_DOCUMENT_CHUNK_SCAN_LIMIT` caps how many vector-store chunks are scanned to produce document summaries. `MAX_QUESTION_CHARS` bounds query text accepted by `GET /files/query`.
 
 ## Production Notes
 
-- Run multiple API workers with `WEB_CONCURRENCY` after sizing CPU and memory for PDF parsing and model calls.
-- Each worker keeps its own embedding model cache. Increasing `WEB_CONCURRENCY` improves concurrency but also multiplies local embedding memory use.
+- Upload jobs are tracked in API worker memory. Keep `WEB_CONCURRENCY=1` unless you add a shared job store or route upload-status polling to the same worker.
+- Each worker keeps its own embedding model cache. Increasing `WEB_CONCURRENCY` improves concurrency but also multiplies local embedding memory use and upload-status state.
 - Keep `MAX_UPLOAD_BYTES` and `MAX_CHUNKS_PER_UPLOAD` low enough to prevent one upload from monopolizing memory.
 - Increase `VECTORSTORE_ADD_BATCH_SIZE` only after checking vector-store write latency and memory use.
 - Use pgvector with fixed `EMBEDDING_DIMENSIONS` when you want PostgreSQL indexes over a known vector width.
 - Keep `OLLAMA_NUM_CTX` and `OLLAMA_NUM_PREDICT` bounded for local models. Large context windows raise memory use even when the model file is small.
-- For very large installations, move document manifests and ingestion jobs into a separate database and queue. This API now bounds work per request, but it still performs ingestion inside the request lifecycle.
+- For very large installations, move document manifests and ingestion jobs into a separate database and queue. This API queues work after the upload response, but job state is still process-local.
 
 ## Troubleshooting
 
@@ -350,6 +378,7 @@ LIST_DOCUMENT_CHUNK_SCAN_LIMIT=10000
 - Upload fails with a Weaviate connection error: check that both `WEAVIATE_PORT` and `WEAVIATE_GRPC_PORT` are exposed.
 - Upload or query fails with pgvector: check that `docker compose --profile pgvector up --build` started the `pgvector` service and that `PGVECTOR_CONNECTION` uses the `postgresql+psycopg://` driver.
 - Upload returns `413`: raise `MAX_UPLOAD_BYTES` or `MAX_CHUNKS_PER_UPLOAD`, or split the document before uploading.
+- Upload status is `failed`: check the `error` field from `GET /files/uploads/{document_id}`.
 - Query fails with an authentication error: check the model deployment name, endpoint, API key, and API version.
 - Pgvector embedding fails: check `EMBEDDINGS_PROVIDER` and the embedding model or deployment variable.
 - Local embeddings fail on first run: check network access to download the model, or set `LOCAL_EMBEDDING_LOCAL_FILES_ONLY=True` after the model is already cached.

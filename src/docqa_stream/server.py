@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 import logging
 import os
 from pathlib import Path
@@ -7,10 +8,18 @@ from fastapi import FastAPI
 from starlette.responses import HTMLResponse
 
 from .routers import files
+from .settings import validate_config
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app):
+    validate_config()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.include_router(files.router)
 DEMO_PATH = Path(__file__).parent / "static" / "demo.html"

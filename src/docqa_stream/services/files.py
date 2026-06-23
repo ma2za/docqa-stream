@@ -1,5 +1,8 @@
 import io
 import json
+import os
+import tempfile
+from threading import Lock
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -12,12 +15,19 @@ from .llms import get_chat_model
 
 
 def partition_pdf_file(file):
+    os.environ.setdefault(
+        "NUMBA_CACHE_DIR",
+        os.path.join(tempfile.gettempdir(), "docqa-stream-numba"),
+    )
     from unstructured.partition.pdf import partition_pdf
 
-    return partition_pdf(file=file)
+    return partition_pdf(file=file, strategy="auto", languages=["eng"])
 
 
 class FilesService:
+    _upload_jobs = {}
+    _upload_jobs_lock = Lock()
+
     @staticmethod
     def _message_text(message):
         text = getattr(message, "text", None)
@@ -56,35 +66,67 @@ class FilesService:
             question,
             n_docs,
         )
-        context = "\n\n".join(
-            f"Source {index + 1}: {doc.page_content}"
-            for index, (doc, _score) in enumerate(docs_with_scores)
-        )
         citations = [
             FilesService._citation(doc, score)
             for doc, score in docs_with_scores
         ]
+        if not docs_with_scores:
+
+            def stream_no_context():
+                yield FilesService._event("token", {"text": "I do not know."})
+                yield FilesService._event("citations", {"citations": []})
+
+            return stream_no_context()
+
+        context = "\n\n".join(
+            f"Source {index + 1}: {doc.page_content}"
+            for index, (doc, _score) in enumerate(docs_with_scores)
+        )
 
         messages = [
             (
                 "system",
-                "Answer using only the provided context. If the context does not contain the answer, say you do not know. Be concise.",
+                "Answer directly using only the context below. Do not preface the answer with a context disclaimer. If the context does not contain the answer, say you do not know. Be concise.",
             ),
             ("human", f"Context:\n{context}\n\nQuestion: {question}"),
         ]
         llm = get_chat_model(temperature)
 
         def stream():
-            for chunk in llm.stream(messages):
-                text = FilesService._message_text(chunk)
-                if text:
-                    yield FilesService._event("token", {"text": text})
+            try:
+                for chunk in llm.stream(messages):
+                    text = FilesService._message_text(chunk)
+                    if text:
+                        yield FilesService._event("token", {"text": text})
+            except Exception as exc:
+                yield FilesService._event("error", {"message": str(exc)})
+                return
             yield FilesService._event("citations", {"citations": citations})
 
         return stream()
 
     @staticmethod
-    async def upload(file, chunk_size, vectorstore):
+    def _set_upload_status(document_id, **updates):
+        with FilesService._upload_jobs_lock:
+            job = FilesService._upload_jobs.setdefault(
+                document_id,
+                {
+                    "document_id": document_id,
+                },
+            )
+            job.update(updates)
+            return dict(job)
+
+    @staticmethod
+    def upload_status(document_id):
+        with FilesService._upload_jobs_lock:
+            job = FilesService._upload_jobs.get(document_id)
+            if not job:
+                raise HTTPException(status_code=404, detail="Upload job not found.")
+            return dict(job)
+
+    @staticmethod
+    async def upload(file, chunk_size, background_tasks, store_factory):
         if not file.filename or not file.filename.lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail="Only PDF uploads are supported.")
 
@@ -93,7 +135,63 @@ class FilesService:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
         document_id = str(uuid4())
-        elements = await run_in_threadpool(partition_pdf_file, io.BytesIO(data))
+        response = FilesService._set_upload_status(
+            document_id,
+            filename=file.filename,
+            status="queued",
+            chunks_added=0,
+            error=None,
+        )
+        background_tasks.add_task(
+            FilesService._run_upload_job,
+            document_id,
+            file.filename,
+            data,
+            chunk_size,
+            store_factory,
+        )
+        return response
+
+    @staticmethod
+    def _run_upload_job(document_id, filename, data, chunk_size, store_factory):
+        store = store_factory()
+        try:
+            FilesService._set_upload_status(
+                document_id,
+                filename=filename,
+                status="processing",
+                error=None,
+            )
+            vectorstore = next(store)
+            result = FilesService._process_upload_data(
+                document_id,
+                filename,
+                data,
+                chunk_size,
+                vectorstore,
+            )
+            FilesService._set_upload_status(
+                document_id,
+                filename=filename,
+                status="completed",
+                chunks_added=result["chunks_added"],
+                error=None,
+            )
+        except Exception as exc:
+            FilesService._set_upload_status(
+                document_id,
+                filename=filename,
+                status="failed",
+                error=str(exc),
+            )
+        finally:
+            close = getattr(store, "close", None)
+            if close:
+                close()
+
+    @staticmethod
+    def _process_upload_data(document_id, filename, data, chunk_size, vectorstore):
+        elements = partition_pdf_file(io.BytesIO(data))
         source_docs = []
 
         for element in elements:
@@ -104,7 +202,7 @@ class FilesService:
             metadata = getattr(element, "metadata", None)
             doc_metadata = {
                 "document_id": document_id,
-                "filename": file.filename,
+                "filename": filename,
             }
             page = getattr(metadata, "page_number", None)
             if page is not None:
@@ -137,13 +235,12 @@ class FilesService:
             doc.metadata["chunk_index"] = chunk_index
 
         for index in range(0, len(docs), settings.VECTORSTORE_ADD_BATCH_SIZE):
-            await run_in_threadpool(
-                vectorstore.add_documents,
-                docs[index : index + settings.VECTORSTORE_ADD_BATCH_SIZE],
+            vectorstore.add_documents(
+                docs[index : index + settings.VECTORSTORE_ADD_BATCH_SIZE]
             )
         return {
             "document_id": document_id,
-            "filename": file.filename,
+            "filename": filename,
             "chunks_added": len(docs),
         }
 

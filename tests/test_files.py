@@ -87,14 +87,15 @@ def test_upload_api_returns_document_summary(test_client, test_files, monkeypatc
     test_example = test_files.get("test_upload")[0]
     inputs = test_example.get("inputs")
 
-    async def upload(file, chunk_size, vectorstore):
+    async def upload(file, chunk_size, background_tasks, store_factory):
         assert file.filename == inputs.get("filename")
         assert chunk_size == inputs.get("chunk_size")
-        assert isinstance(vectorstore, FakeVectorStore)
         return {
             "document_id": "doc-1",
             "filename": file.filename,
-            "chunks_added": 73,
+            "status": "queued",
+            "chunks_added": 0,
+            "error": None,
         }
 
     monkeypatch.setattr(FilesService, "upload", upload)
@@ -110,7 +111,9 @@ def test_upload_api_returns_document_summary(test_client, test_files, monkeypatc
     assert response.json() == {
         "document_id": "doc-1",
         "filename": inputs.get("filename"),
-        "chunks_added": 73,
+        "status": "queued",
+        "chunks_added": 0,
+        "error": None,
     }
 
 
@@ -145,7 +148,8 @@ def test_upload_rejects_oversized_pdf(fake_store, monkeypatch):
             FilesService.upload(
                 FakeUpload("large.pdf", b"12345"),
                 1000,
-                fake_store,
+                SimpleNamespace(add_task=lambda *args: None),
+                lambda: iter([fake_store]),
             )
         )
 
@@ -162,21 +166,95 @@ def test_upload_stores_document_metadata(fake_store, monkeypatch):
         lambda file: [element],
     )
 
-    response = asyncio.run(
-        FilesService.upload(
-            FakeUpload("rome_guide.pdf", b"%PDF-1.4"),
-            1000,
-            fake_store,
-        )
+    response = FilesService._process_upload_data(
+        "doc-1",
+        "rome_guide.pdf",
+        b"%PDF-1.4",
+        1000,
+        fake_store,
     )
 
     assert response["filename"] == "rome_guide.pdf"
     assert response["chunks_added"] == 1
-    assert len(response["document_id"]) == 36
+    assert response["document_id"] == "doc-1"
     assert fake_store.docs[0].metadata["document_id"] == response["document_id"]
     assert fake_store.docs[0].metadata["filename"] == "rome_guide.pdf"
     assert fake_store.docs[0].metadata["page"] == 1
     assert fake_store.docs[0].metadata["chunk_index"] == 0
+
+
+def test_upload_job_status_api(test_client):
+    FilesService._set_upload_status(
+        "doc-1",
+        filename="rome_guide.pdf",
+        status="completed",
+        chunks_added=1,
+        error=None,
+    )
+
+    response = test_client.get("/files/uploads/doc-1")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "document_id": "doc-1",
+        "filename": "rome_guide.pdf",
+        "status": "completed",
+        "chunks_added": 1,
+        "error": None,
+    }
+
+
+def test_upload_job_status_missing_returns_404(test_client):
+    response = test_client.get("/files/uploads/missing")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Upload job not found."
+
+
+def test_upload_job_marks_completed(fake_store, monkeypatch):
+    element = SimpleNamespace(
+        text="Rome was founded in 753 BC according to tradition.",
+        metadata=SimpleNamespace(page_number=1),
+    )
+    monkeypatch.setattr(
+        "src.docqa_stream.services.files.partition_pdf_file",
+        lambda file: [element],
+    )
+
+    FilesService._run_upload_job(
+        "doc-complete",
+        "rome_guide.pdf",
+        b"%PDF-1.4",
+        1000,
+        lambda: iter([fake_store]),
+    )
+
+    assert FilesService.upload_status("doc-complete") == {
+        "document_id": "doc-complete",
+        "filename": "rome_guide.pdf",
+        "status": "completed",
+        "chunks_added": 1,
+        "error": None,
+    }
+
+
+def test_upload_job_marks_failed(fake_store, monkeypatch):
+    monkeypatch.setattr(
+        "src.docqa_stream.services.files.partition_pdf_file",
+        lambda file: [],
+    )
+
+    FilesService._run_upload_job(
+        "doc-failed",
+        "empty.pdf",
+        b"%PDF-1.4",
+        1000,
+        lambda: iter([fake_store]),
+    )
+
+    status = FilesService.upload_status("doc-failed")
+    assert status["status"] == "failed"
+    assert "No text could be extracted" in status["error"]
 
 
 def test_query_api_streams_answer_and_citations(test_client, test_files, monkeypatch):
@@ -247,11 +325,65 @@ def test_query_uses_bounded_inputs_and_returns_citations(fake_store, monkeypatch
 
     assert fake_store.query == "when was rome founded?"
     assert fake_store.k == 3
+    assert "Based on the provided context" not in llm.messages[0][1]
     assert "Source 1:" in llm.messages[1][1]
     assert "event: token" in body
     assert citations_payload["citations"][0]["filename"] == "rome_guide.pdf"
     assert citations_payload["citations"][0]["page"] == 1
     assert citations_payload["citations"][0]["chunk_index"] == 0
+
+
+def test_query_returns_unknown_without_context(monkeypatch):
+    class EmptyVectorStore:
+        def similarity_search_with_score(self, query, k):
+            return []
+
+    def fail_get_chat_model(temperature):
+        raise AssertionError("LLM should not be called without context")
+
+    monkeypatch.setattr(
+        "src.docqa_stream.services.files.get_chat_model",
+        fail_get_chat_model,
+    )
+
+    stream = asyncio.run(FilesService.query("unknown?", 0, 3, EmptyVectorStore()))
+    body = "".join(stream)
+    events = [event for event in body.split("\n\n") if event]
+    citations_payload = json.loads(events[-1].split("data: ", 1)[1])
+
+    assert "I do not know." in body
+    assert citations_payload["citations"] == []
+
+
+def test_query_streams_error_event_on_llm_failure(fake_store, monkeypatch):
+    class FakeLLM:
+        def stream(self, messages):
+            raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(
+        "src.docqa_stream.services.files.get_chat_model",
+        lambda temperature: FakeLLM(),
+    )
+
+    stream = asyncio.run(FilesService.query("when was rome founded?", 0, 3, fake_store))
+    body = "".join(stream)
+
+    assert "event: error" in body
+    assert "provider unavailable" in body
+    assert "event: citations" not in body
+
+
+def test_query_rejects_blank_question(test_client):
+    response = test_client.get("/files/query", params={"question": "   "})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Question cannot be empty."
+
+
+def test_query_rejects_oversized_question(test_client):
+    response = test_client.get("/files/query", params={"question": "x" * 2001})
+
+    assert response.status_code == 422
 
 
 def test_list_files(test_client):

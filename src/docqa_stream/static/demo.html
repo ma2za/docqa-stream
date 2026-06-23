@@ -177,6 +177,30 @@
       const answer = document.querySelector("#answer");
       const citations = document.querySelector("#citations");
 
+      const waitForUpload = async (documentId) => {
+        while (true) {
+          const response = await fetch(`/files/uploads/${documentId}`);
+          const payload = await response.json();
+
+          if (!response.ok) {
+            throw new Error(payload.detail || "Upload status failed.");
+          }
+
+          uploadStatus.textContent = `${payload.filename} ${payload.status}.`;
+
+          if (payload.status === "completed") {
+            uploadStatus.textContent = `${payload.filename} indexed as ${payload.chunks_added} chunks.`;
+            return;
+          }
+
+          if (payload.status === "failed") {
+            throw new Error(payload.error || "Upload failed.");
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+      };
+
       uploadForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const file = document.querySelector("#file").files[0];
@@ -195,7 +219,12 @@
           return;
         }
 
-        uploadStatus.textContent = `${payload.filename} indexed as ${payload.chunks_added} chunks.`;
+        uploadStatus.textContent = `${payload.filename} ${payload.status}.`;
+        try {
+          await waitForUpload(payload.document_id);
+        } catch (error) {
+          uploadStatus.textContent = error.message;
+        }
       });
 
       queryForm.addEventListener("submit", async (event) => {
@@ -206,6 +235,12 @@
         queryStatus.textContent = "Streaming...";
 
         const response = await fetch(`/files/query?question=${encodeURIComponent(question)}`);
+        if (!response.ok) {
+          const payload = await response.json();
+          queryStatus.textContent = payload.detail || "Query failed.";
+          return;
+        }
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -242,6 +277,10 @@
                   return node;
                 })
               );
+            }
+
+            if (eventName === "error") {
+              queryStatus.textContent = payload.message || "Query failed.";
             }
           }
         }

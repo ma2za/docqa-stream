@@ -8,6 +8,18 @@ ARG PYTHON_VERSION=3.11.4
 FROM python:${PYTHON_VERSION}-slim AS base
 ARG INSTALL_EXTRAS=""
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libgl1 \
+        libglib2.0-0 \
+        libxext6 \
+        libxrender1 \
+        libxcb1 \
+        poppler-utils \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+
 # Prevents Python from writing pyc files.
 ENV PYTHONDONTWRITEBYTECODE=1
 
@@ -39,6 +51,9 @@ RUN --mount=type=cache,target=$POETRY_CACHE_DIR \
         poetry install --without dev --extras "$INSTALL_EXTRAS" --no-root; \
     else \
         poetry install --without dev --no-root; \
-    fi
+    fi \
+    && poetry run python -m pip install --force-reinstall "protobuf==6.33.6"
 
 COPY . .
+
+CMD ["sh", "-c", "poetry run uvicorn src.docqa_stream.server:app --host 0.0.0.0 --port ${FASTAPI_PORT:-8000}"]

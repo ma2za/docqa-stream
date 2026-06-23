@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 
 import httpx
 
@@ -47,9 +48,27 @@ def upload_pdf(client):
     return payload["document_id"]
 
 
+def wait_for_upload(client, document_id):
+    deadline = time.monotonic() + 600
+    while time.monotonic() < deadline:
+        response = client.get(f"{API_URL}/files/uploads/{document_id}", timeout=60)
+        response.raise_for_status()
+        payload = response.json()
+        print(payload)
+        if payload["status"] == "completed":
+            return
+        if payload["status"] == "failed":
+            raise RuntimeError(payload["error"] or "Upload failed.")
+        time.sleep(2)
+    raise TimeoutError("Upload did not complete within 600 seconds.")
+
+
 def main():
     with httpx.Client() as client:
-        document_id = get_existing_document_id(client) or upload_pdf(client)
+        existing_document_id = get_existing_document_id(client)
+        document_id = existing_document_id or upload_pdf(client)
+        if not existing_document_id:
+            wait_for_upload(client, document_id)
         print({"document_id": document_id})
 
         response = client.get(
@@ -69,6 +88,8 @@ def main():
     for event in events:
         if event.get("event") == "token":
             answer += json.loads(event["data"])["text"]
+        if event.get("event") == "error":
+            raise RuntimeError(json.loads(event["data"])["message"])
         if event.get("event") == "citations":
             citations = json.loads(event["data"])["citations"]
 
